@@ -7,7 +7,11 @@ import pandas as pd
 y_true = [[0, 1, 0], [0, 0, 1]]
 y_pred = [[0.05, 0.95, 0], [0.1, 0.8, 0.1]]
 
-def categorical_crossentroyp(y_true,y_pred):
+def categorical_crossentropy_scratch(y_true,y_pred):
+    """
+    :param: y_true [n_indvs,true one hot label]
+    :param: y_pred [n_indvs, pred one hot label]
+    """
     n = len(y_true)
     ce_output = 0.0
     ce_global = 0.0
@@ -20,17 +24,18 @@ def categorical_crossentroyp(y_true,y_pred):
             ce_output += y_tt * np.log(y_pp + 1e-25) + (1 - y_tt) * np.log(1 - y_pp + 1e-25)
 
         ce_global +=ce_output
-        print(f"training input : {i}, ce : {ce_output}")
+        #print(f"training input : {i}, ce : {ce_output}")
         ce_output = 0.0
+    #print(f"batch ce : {ce_global}")
+    return -ce_global / n
+    
 
-    print(f"batch ce : {-ce_global / 3}")
 
-#categorical_crossentroyp(y_true,y_pred)
 
 y_true = [[1, 1, 0], [0, 0, 1]]
 y_pred = [[0.05, 0.95, 0], [0.1, 0.8, 0.1]]
 # Using 'auto'/'sum_over_batch_size' reduction type.
-
+#cce = categorical_crossentroyp(y_true,y_pred)
 
 cce = tf.keras.losses.CategoricalCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
 print(cce(y_true, y_pred))

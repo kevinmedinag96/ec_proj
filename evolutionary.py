@@ -7,7 +7,15 @@ from pymoo.core.problem import Problem
 from pymoo.algorithms.soo.nonconvex.de import DE
 from pymoo.optimize import minimize
 import pymoo
+from pymoo.termination import max_gen
+from sklearn.preprocessing import LabelEncoder,OneHotEncoder
+import sys
 
+arr_1 = [1,2,3]
+
+arr_2 = [4,5,6]
+
+r = np.stack((arr_1,arr_2),axis=1)
 """
 Class population will define the chromosome as the set of weights of a NN model. It will be a 1D vector,
 every certain range will define the weights for the k layer of the NN model
@@ -48,7 +56,7 @@ class EvolutionaryProblem(Problem):
     def get_fitness(self):
         return self.fitness
 
-    def load_dataset(self,obs = None, features = None,num_cat_labels = 0):
+    def load_dataset(self,obs = None, features = None,num_cat_labels = 0,dataset = None,labels = None):
         """
         This function will set the training data X data and y data
         if obs = None then dataset is custom loaded
@@ -57,10 +65,12 @@ class EvolutionaryProblem(Problem):
         if obs is not None: #random
             self.X_train = np.random.random(size=(obs,features))
             y_true_data = np.random.randint(0,num_cat_labels,size=(obs,))
-            self.y_train = tf.convert_to_tensor(np.array(pd.get_dummies(y_true_data).astype(np.int8)),
-                                             dtype=tf.int8)
-        else:
-            pass
+            self.y_train = np.array(pd.get_dummies(y_true_data).astype(np.int8))
+                                    #tf.convert_to_tensor(np.array(pd.get_dummies(y_true_data).astype(np.int8)),
+                            #                 dtype=tf.int8)
+        else: #insert dataset
+            self.X_train = dataset
+            self.y_train = labels
     
     def compute_fitness_population(self):
         for indv in range(self.N):
@@ -82,7 +92,8 @@ class EvolutionaryProblem(Problem):
             y_pred_indv = self.model.compute_prediction(self.X_train)
 
             #compute loss fn for individual i
-            loss_indv = self.model.loss_fn(self.y_train,y_pred_indv) #catcrossentropy 
+            loss_indv = self.model.compute_loss(self.y_train,y_pred_indv) #catcrossentropy  scratch
+            #loss_indv = self.model.loss_fn(self.y_train,y_pred_indv) #catcrossentropy 
             #print(f"individual loss : {loss_indv}")
 
             #setting fitness (catcrossentropy loss) to individual i
@@ -131,51 +142,102 @@ class EvolutionaryProblem(Problem):
     
 if __name__ == "__main__":
 
+    #--------------------- LOAD GENETIC MARKERS DATASET------------------------------- #
+    work_path = "C:/Users/kevin/OneDrive - Instituto Tecnologico y de Estudios Superiores de Monterrey/MCC/MCC-i tercer semestre/Evolutionary Computing/Hws/Project/"
+    file_name = "genetic_markers_de.txt"
 
-    N = 23
+    cols_name = []
+    for i in range(2006):
+        cols_name.append("col_" + str(i))
+
+    df2 = pd.read_csv(work_path + "data_markers_1000.ped",sep='\s+', header=None,names=cols_name)
+    df2_labels = df2["col_0"]
+    df2 = df2.drop(columns=['col_0', 'col_1','col_2','col_3'])
+
+    #convert string columns into categories
+
+    label_encoder = LabelEncoder()
+    one_hot_encoder = OneHotEncoder()
+
+    for i in range(6,2006):
+        col_name = "col_" + str(i)
+        df2[col_name] = label_encoder.fit_transform(df2[col_name])
+
+    #One Hot encode output labels
+    oh_df2_labels = one_hot_encoder.fit_transform(df2_labels.values.reshape(-1, 1))
+
+    #normalize training data
+    col_name = "col_5"
+    df2[col_name] = (df2[col_name] - df2[col_name].mean()) / df2[col_name].std()
+
+
+    #--------------------- LOAD GENETIC MARKERS DATASET------------------------------- #
+
+    #----- SECTION 1 DESIGN AND IMPLEMENT DE ALGORITHM TO OUR GENETIC MARKERS DATASET
+    sys.path.insert(0,work_path + "Modules/")
     
-    input_shape = 5
-    num_cat_labels = 2
-    num_weights_per_layer = [7,4,num_cat_labels]
+    N = 20 #population size
+    
+    input_shape = df2.columns.shape[0]
+    num_cat_labels = oh_df2_labels.shape[1]
+    num_weights_per_layer = [128,56,num_cat_labels]
     num_weights_per_layer_plus_input = np.array([input_shape]+ num_weights_per_layer)
+    #specify decision variable space of individuals : which in this problem is the size of the total weights and biases of the
+    #neural network model
     n = np.sum(num_weights_per_layer_plus_input[:-1] * num_weights_per_layer_plus_input[1:]) + np.sum(num_weights_per_layer)
-    loss = tf.keras.losses.CategoricalCrossentropy(reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE)
+    #loss = tf.keras.losses.CategoricalCrossentropy(reduction=tf.keras.losses.Reduction.SUM_OVER_BATCH_SIZE)
+    loss = evolutionary_utils.categorical_crossentropy_scratch_array
     nn = ml_model.Model(input_shape,num_weights_per_layer,loss)
     nn.setNetwork()
-    problem = EvolutionaryProblem(N,n,nn,0.0,5.0,False)
+
+    xl = -5
+    xu = 5
+    problem = EvolutionaryProblem(N,n,nn,xl,xu,False)
     #problem.decode_chromosome()
 
-    #dataset characteristics
-    obs = 2000
-    features = input_shape
-    problem.load_dataset(obs=obs,features=features,num_cat_labels=num_cat_labels)
-
-    #testing decoded chromosome indexing data
-    #layer_1 = pop.decoded_chromosome[0][0][:2,:4,:5]
-    #print(f"layer 1 individual weights: {layer_1}")
-
-
-    #layer_k = pop.decoded_chromosome[0][1][:2,:4,:5]
-    #print(f"layer 2 individual weights: {layer_k}")
-
-    #pop.compute_fitness_population()
+    #dataset
+    problem.load_dataset(dataset=df2,labels=oh_df2_labels.toarray())
 
     #set pymoo algorithm
     
     algorithm = DE(
         pop_size=N,
         variant="DE/rand/1/bin",
-        CR=0.3,
+        CR=0.9,
         dither="vector",
         jitter=False
     )
 
+    num_generations = 100
     res = minimize(problem,
                 algorithm,
                 seed=1,
-                verbose=False)
+                verbose=True,
+                termination=max_gen.MaximumGenerationTermination(num_generations),
+                save_history=False)
 
     print("Best solution found: \nX = %s\nF = %s" % (res.X, res.F))
+
+    """
+
+    # Obtiene la historia de la optimización
+    history = res.history
+
+    best_f_min_per_generation = []
+    best_f_avg_per_generation = []
+    for gen, de_obj in enumerate(history):
+        best_f_min_per_generation.append(de_obj.output.f_min.value)
+        print(f"Generación {gen + 1}: f_min  : {best_f_min_per_generation[gen]}")
+        best_f_avg_per_generation.append(de_obj.output.f_avg.value)
+        print(f"Generación {gen + 1}: f_avg  : {best_f_avg_per_generation[gen]}")
+
+    #f_min,f_avg matrix
+    f_arr = np.stack((best_f_min_per_generation,best_f_avg_per_generation),axis=1)
+    #guardar datos DE statistics
+    file_name = "genetic_markers_de.txt"
+    np.savetxt(work_path + file_name, f_arr, fmt='%f', delimiter='\t')
+
+    """
 
     
 
